@@ -9,6 +9,10 @@ import * as jwt from "jsonwebtoken";
 import * as bcrypt from "bcryptjs";
 import { Product } from "../../src/entity/Product";
 import { Method } from "../../src/entity/Method";
+import config from "../../config/config";
+import { Invoice } from "../../src/entity/Invoice";
+import { InvoiceItem } from "../../src/entity/InvoiceItem";
+import { Any } from "typeorm";
 /**
  *
  */
@@ -25,11 +29,25 @@ export default class UserController {
     if (!phoneObj.isNumber)
       return errRes(res, `Phone ${req.body.phone} is not a valid`);
 
+    let phone = phoneObj.globalP;
     let user: any;
 
     try {
       user = await User.findOne({ where: { phone: req.body.phone } });
-      if (user) return errRes(res, `Phone ${req.body.phone} already exists`);
+      if (user) {
+        //check user if complete otp
+        if (user.complete) {
+          return errRes(res, `Phone ${req.body.phone} already exists`);
+        }
+        //if user is not in DB
+        var token = jwt.sign({ id: user.id }, config.jwtsecret);
+        // re write a  otp
+        user.otp = getOTP();
+        await user.save();
+        user.password = null;
+        user.otp = null;
+        return okRes(res, { user, token });
+      }
     } catch (error) {
       return errRes(res, error);
     }
@@ -43,27 +61,43 @@ export default class UserController {
       active: true,
       complete: false,
       otp: getOTP(),
+      phone,
     });
 
     await user.save();
+
+    //to avoid return password in postamn
+    user.password = null;
+    user.otp = null;
+
     // TODO: create JWT Token
 
-    var token = jwt.sign({ id: user.id }, "shhhhh");
-
-    return okRes(res, { data: user, token });
+    var token = jwt.sign({ id: user.id }, config.jwtsecret);
+    return okRes(res, { data: { user, token } });
   }
   // TODO: check  OTP
 
   static async otp(req: Request, res: Response) {
-    let token: any, payload: any;
+    let notValid = validate(req.body, validation.otp());
+    if (notValid) return errRes(res, notValid);
+    let token, payload: any;
     let user: any;
     token = req.headers.token;
-    payload = jwt.verify(token, "shhhhh");
+    try {
+      payload = jwt.verify(token, config.jwtsecret);
+    } catch (error) {
+      return errRes(res, "Invalid  token");
+    }
 
     user = await User.findOne({ where: { id: payload.id } });
-    if (user.otp == req.headers.otp) {
+    if (!user) return errRes(res, "User does not exist");
+    // check if user complete = true
+    if (user.complete) return errRes(res, "User already complete");
+    // compare the OTPs
+    if (user.otp == req.body.otp) {
       user.complete = true;
       await user.save();
+      user.password = null;
       return okRes(res, "correct");
     } else {
       user.otp = null;
@@ -76,6 +110,10 @@ export default class UserController {
     let userpassword = req.body.password;
     let notValid = validate(req.body, validation.login());
     if (notValid) return errRes(res, notValid);
+    let phoneObj = PhoneFormat.getAllFormats(req.body.phone);
+    if (!phoneObj.isNumber)
+      return errRes(res, `Phone ${req.body.phone} is not a valid`);
+    const phone = phoneObj.globalP;
     let user: any;
     try {
       user = await User.findOne({ where: { phone: userphone } });
@@ -84,7 +122,7 @@ export default class UserController {
           return errRes(res, "Please register ");
         } else {
           if (await bcrypt.compareSync(userpassword, user.password)) {
-            var token = jwt.sign({ id: user.id }, "shhhhh");
+            var token = jwt.sign({ id: user.id }, config.jwtsecret);
             return okRes(res, { token });
           } else {
             return errRes(res, "in correct password");
@@ -95,92 +133,129 @@ export default class UserController {
       return errRes(res, error);
     }
   }
-  static async putCategory(req: Request, res: Response) {
-    let notValid = validate(req.body, validation.category());
+
+  static async makeInvoice(req, res) {
+    let notValid = validate(req.body, validation.makeInvoice());
     if (notValid) return errRes(res, notValid);
-    let category: any;
-    try {
-      category = await Category.findOne({ where: { title: req.body.title } });
-      if (category)
-        return errRes(res, `category ${req.body.title} already exists`);
-    } catch (error) {
-      return errRes(res, error);
+    let ids = [];
+    for (let product of req.body.products) {
+      let notValid = validate(product, validation.oneProduct());
+      if (notValid) return errRes(res, notValid);
+      ids.push(product);
     }
-    category = await Category.create({
-      ...req.body,
-      active: true,
-    });
-    await category.save();
-    return okRes(res, "successful");
-  }
-  static async getCategores(req: Request, res: Response) {
-    let category: any;
-    try {
-      category = await Category.find({ where: { active: true } });
-      if (category) return okRes(res, { category });
-    } catch (error) {
-      return errRes(res, error);
-    }
-  }
 
-  static async addProduct(req: Request, res: Response) {
-    let NotValid = validate(req.body, validation.product());
-    if (NotValid) return errRes(res, NotValid);
-    let product: any;
-    try {
-      product = await Product.findOne({ where: { name: req.body.name } });
-      if (product) {
-        return errRes(res, `This product already exist`);
-      } else {
-        product = await Product.create({
-          ...req.body,
-          active: true,
-          category: 2,
+    // get the user let user = req.user
+
+    let user = req.user;
+    let products = await Product.findByIds(ids);
+    let total = 0;
+
+    //  calculate the total from the products
+    for (const product of products) {
+      total =
+        total +
+        product.price *
+          req.body.products.filter((e) => e.id == product.id)[0].quantity;
+    }
+    let invoice: any;
+    invoice = await Invoice.create({
+      ...req.body,
+      total,
+      status: "pending",
+      user,
+    });
+    await invoice.save();
+
+    // create invoice item
+    for (const product of products) {
+      let invoiceItem: any;
+
+      invoiceItem = await InvoiceItem.create({
+        quantity: req.body.products.filter((e) => e.id == product.id)[0]
+          .quantity,
+        invoice,
+        subtotal:
+          req.body.products.filter((e) => e.id == product.id)[0].quantity *
+          product.price,
+        product,
+      });
+      await invoiceItem.save();
+    }
+    return okRes(res, invoice);
+  }
+  static async userUpdate(req, res) {
+    let user = req.user;
+    let newuser = req.body;
+
+    let notValid = validate(req.body, validation.userUpdate());
+    if (notValid) return errRes(res, notValid);
+    // check  phone is valid
+    if (newuser.phone) {
+      let phoneObj = PhoneFormat.getAllFormats(newuser.phone);
+      if (!phoneObj.isNumber)
+        return errRes(res, `Phone ${req.body.phone} is not a valid`);
+      // check if phone already used in DB
+      try {
+        let usercheck = await User.findOne({
+          where: { phone: phoneObj.globalP },
         });
-        await product.save();
-        return okRes(res, { product });
+        newuser.phone = phoneObj.globalP;
+        if (usercheck) return errRes(res, "This phone already used");
+      } catch (error) {
+        return errRes(res, error);
       }
-    } catch (error) {
-      return errRes(res, error);
     }
-  }
-  static async getProduct(req: Request, res: Response) {
-    let product: any;
-    try {
-      product = await Product.find({ where: { category: req.params.id } });
-      if (product) {
-        return okRes(res, product);
-      } else {
-        return errRes(res, "there is no product in this category");
-      }
-    } catch (error) {
-      return errRes(res, error);
-    }
-  }
-  static async addPayment(req: Request, res: Response) {
-    let NotValid = validate(req.body, validation.payment());
-    if (NotValid) return errRes(res, NotValid);
-
-    let payment: any;
-
-    payment = await Method.create({
-      ...req.body,
-      active: true,
+    Object.keys(newuser).forEach((el) => {
+      user[el] = newuser[el];
     });
-    await payment.save();
-    return okRes(res, { payment });
+    await user.save();
+    return okRes(res, "Update successful");
   }
-  static async getPayment(req: Request, res: Response) {
-    let paymen: any;
+  static async fotgetPassword(req, res) {
+    let user: any;
+
+    let phoneObj = PhoneFormat.getAllFormats(req.body.phone);
+    if (!phoneObj.isNumber)
+      return errRes(res, `Phone ${req.body.phone} is not a valid`);
+
     try {
-      paymen = await Method.find({ where: { active: true } });
-      if (paymen) {
-        return okRes(res, paymen);
-      } else {
-        return errRes(res, "there is no payment  active");
-      }
+      user = await User.findOne({
+        where: { phone: phoneObj.globalP },
+      });
+      if (!user) return errRes(res, "please Regsiter");
     } catch (error) {
       return errRes(res, error);
     }
+    var token = jwt.sign({ id: user.id }, config.jwtsecret);
+    user.otp = getOTP();
+    await user.save();
+
+    return okRes(res, { sms: "send code to your phone", token });
+  }
+  static async verfiyPassword(req, res) {
+    let notValid = validate(req.body, validation.otp());
+    if (notValid) return errRes(res, notValid);
+    let token, payload: any;
+    let user: any;
+    token = req.headers.token;
+    try {
+      payload = jwt.verify(token, config.jwtsecret);
+    } catch (error) {
+      return errRes(res, "Invalid  token");
+    }
+    try {
+      user = await User.findOne({ where: { id: payload.id } });
+      if (!user) return errRes(res, "error user not exist");
+    } catch (error) {
+      return errRes(res, error);
+    }
+    if (req.body.otp == user.otp) {
+      let hashPassword = await hashMyPassword(req.body.newpassword);
+      user.password = hashPassword;
+
+      await user.save();
+      return okRes(res, "password changed successfuly");
+    }
+    return errRes(res, "code is not valid");
   }
 }

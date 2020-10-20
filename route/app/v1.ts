@@ -2,6 +2,8 @@ import * as express from "express";
 const router = express.Router();
 
 import UserController from "../../controllers/app/user.controller";
+import HomeController from "../../controllers/app/Home.controler";
+import userAuth from "../../midllewear/app/userAuth";
 
 // create v1
 //// register
@@ -10,25 +12,21 @@ router.post("/register", UserController.register);
 router.post("/otp", UserController.otp);
 //Login
 router.post("/login", UserController.Login);
-//add new category
-router.post("/category", UserController.putCategory);
-//get categores
-router.get("/getcategores", UserController.getCategores);
-//add a new product
-router.post("/addproduct", UserController.addProduct);
-//get product in category
-router.get("/product/:id", UserController.getProduct);
-//add a new payment method
-router.post("/addpayment", UserController.addPayment);
-//get payment active
-router.get("/payment", UserController.getPayment);
+//make Invoice
+router.post("/makeInvoices", userAuth, UserController.makeInvoice);
+//user update
+router.post("/update", userAuth, UserController.userUpdate);
+//forget password
+router.post("/password_reset", UserController.fotgetPassword);
+// verfiy
+router.post("/verify", UserController.verfiyPassword);
+// ZC
+router.post("/pay", userAuth, UserController.verfiyPassword);
 
-//// login
-//// categories
-//// category products
-//// check out
-//// invoices
-//// methods
-//// notifications
+// HOME CONTROLLERproducts
+router.get("/getcategores", HomeController.getCaegories);
+router.get("/product/:category", HomeController.getProducts);
+router.get("/payment", HomeController.getMethod);
+router.get("/invoices", userAuth, HomeController.getInvoices);
 
 export default router;

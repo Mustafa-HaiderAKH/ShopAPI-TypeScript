@@ -15,6 +15,12 @@ export default class Validator {
       length: { maximum: 15, minimum: 4 },
     },
   });
+  static otp = (must = true) => ({
+    otp: {
+      presence: must,
+      type: "number",
+    },
+  });
   static login = (must = true) => ({
     phone: {
       presence: must,
@@ -72,6 +78,59 @@ export default class Validator {
     url: {
       presence: must,
       type: "string",
+    },
+  });
+  static makeInvoice = (must = true) => ({
+    address: {
+      presence: must,
+      type: "string",
+    },
+    method: {
+      presence: must,
+      type: "string",
+      inclusion: {
+        within: {
+          zc: "zc",
+          ah: "ah",
+          cd: "cd",
+        },
+        message: "^%{value} is not valid",
+      },
+    },
+    long: {
+      presence: must,
+      type: "string",
+    },
+    lat: {
+      presence: must,
+      type: "string",
+    },
+    products: {
+      presence: must,
+      type: "array",
+    },
+  });
+  static oneProduct = (must = true) => ({
+    id: {
+      presence: must,
+      type: "number",
+    },
+    quantity: {
+      presence: must,
+      type: "number",
+    },
+  });
+  static userUpdate = (must = true) => ({
+    name: {
+      type: "string",
+    },
+    phone: {
+      type: "string",
+      length: { maximum: 15, minimum: 10 },
+    },
+    password: {
+      type: "string",
+      length: { maximum: 15, minimum: 4 },
     },
   });
 }
