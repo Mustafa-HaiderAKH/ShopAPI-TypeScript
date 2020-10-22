@@ -13,6 +13,8 @@ import config from "../../config/config";
 import { Invoice } from "../../src/entity/Invoice";
 import { InvoiceItem } from "../../src/entity/InvoiceItem";
 import { Any } from "typeorm";
+import * as ZC from "zaincash";
+
 /**
  *
  */
@@ -33,7 +35,7 @@ export default class UserController {
     let user: any;
 
     try {
-      user = await User.findOne({ where: { phone: req.body.phone } });
+      user = await User.findOne({ where: { phone } });
       if (user) {
         //check user if complete otp
         if (user.complete) {
@@ -164,8 +166,28 @@ export default class UserController {
       status: "pending",
       user,
     });
+    //create zain cash
+    const paymentData = {
+      amount: 2500,
+      orderId: invoice.id,
+      serviceType: "some serviceType",
+      redirectUrl: "http://localhost:3000/v1/zc/redirect",
+      production: false,
+      msisdn: "9647835077880",
+      merchantId: "5dac4a31c98a8254092da3d8",
+      secret: "$2y$10$xlGUesweJh93EosHlaqMFeHh2nTOGxnGKILKCQvlSgKfmhoHzF12G",
+      lang: "ar",
+    };
+    let zc = new ZC(paymentData);
+    let zcTransactionid;
+    try {
+      zcTransactionid = await zc.init();
+    } catch (error) {
+      return errRes(res, error);
+    }
+    let url = `https://test.zaincash.iq/transaction/pay?id=${zcTransactionid}`;
+    invoice.transactionId = zcTransactionid;
     await invoice.save();
-
     // create invoice item
     for (const product of products) {
       let invoiceItem: any;
@@ -181,7 +203,7 @@ export default class UserController {
       });
       await invoiceItem.save();
     }
-    return okRes(res, invoice);
+    return okRes(res, { invoice, url });
   }
   static async userUpdate(req, res) {
     let user = req.user;
@@ -211,26 +233,32 @@ export default class UserController {
     await user.save();
     return okRes(res, "Update successful");
   }
-  static async fotgetPassword(req, res) {
+  /**
+   *
+   * @param req
+   * @param res
+   */
+  static async fotgetPassword(req, res): Promise<object> {
     let user: any;
-
+    let notValid = validate(req.body, validation.forgetpassword());
+    if (notValid) return errRes(res, notValid);
     let phoneObj = PhoneFormat.getAllFormats(req.body.phone);
     if (!phoneObj.isNumber)
       return errRes(res, `Phone ${req.body.phone} is not a valid`);
-
+    let phone = phoneObj.globalP;
     try {
       user = await User.findOne({
-        where: { phone: phoneObj.globalP },
+        where: { phone, complete: true, active: true },
       });
-      if (!user) return errRes(res, "please Regsiter");
+      if (!user) return errRes(res, "please complete Regsiter");
     } catch (error) {
       return errRes(res, error);
     }
-    var token = jwt.sign({ id: user.id }, config.jwtsecret);
+    let token = jwt.sign({ phone }, config.jwtsecret);
     user.otp = getOTP();
     await user.save();
 
-    return okRes(res, { sms: "send code to your phone", token });
+    return okRes(res, { token });
   }
   static async verfiyPassword(req, res) {
     let notValid = validate(req.body, validation.otp());
@@ -238,13 +266,14 @@ export default class UserController {
     let token, payload: any;
     let user: any;
     token = req.headers.token;
+    if (!token) return errRes(res, "please send token");
     try {
       payload = jwt.verify(token, config.jwtsecret);
     } catch (error) {
       return errRes(res, "Invalid  token");
     }
     try {
-      user = await User.findOne({ where: { id: payload.id } });
+      user = await User.findOne({ where: { phone: payload.phone } });
       if (!user) return errRes(res, "error user not exist");
     } catch (error) {
       return errRes(res, error);
@@ -252,10 +281,38 @@ export default class UserController {
     if (req.body.otp == user.otp) {
       let hashPassword = await hashMyPassword(req.body.newpassword);
       user.password = hashPassword;
-
       await user.save();
       return okRes(res, "password changed successfuly");
     }
-    return errRes(res, "code is not valid");
+    user.otp = null;
+    await user.save();
+    return errRes(res, { msg: "code is not valid" });
+  }
+  static async zcRedirect(req, res): Promise<object> {
+    const token = req.query.token;
+    let payload: any;
+    try {
+      payload = jwt.verify(
+        token,
+        "$2y$10$xlGUesweJh93EosHlaqMFeHh2nTOGxnGKILKCQvlSgKfmhoHzF12G"
+      );
+    } catch (error) {
+      return errRes(res, error);
+    }
+    const id = payload.orderid;
+
+    let invoice = await Invoice.findOne(id);
+    if (!invoice) return errRes(res, "No such invoice");
+    if (payload.status == "success") {
+      invoice.status = "paid";
+      invoice.zcOperation = payload.operationid;
+      invoice.zcMsisdn = payload.msisdn;
+      await invoice.save();
+      return okRes(res, invoice);
+    }
+    invoice.status = payload.status;
+    invoice.zcOperation = payload.operationid;
+    await invoice.save();
+    return okRes(res, invoice);
   }
 }

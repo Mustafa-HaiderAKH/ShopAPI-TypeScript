@@ -133,4 +133,9 @@ export default class Validator {
       length: { maximum: 15, minimum: 4 },
     },
   });
+  static forgetpassword = (must = true) => ({
+    phone: {
+      type: "string",
+    },
+  });
 }

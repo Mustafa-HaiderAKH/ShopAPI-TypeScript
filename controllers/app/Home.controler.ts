@@ -43,8 +43,6 @@ export default class HomeController {
     return okRes(res, data);
   }
   static async getInvoices(req, res): Promise<object> {
-    console.log(req.user);
-
     try {
       let data = await Invoice.find({
         where: { user: req.user },

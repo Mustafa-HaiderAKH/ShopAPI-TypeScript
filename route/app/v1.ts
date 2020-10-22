@@ -18,10 +18,10 @@ router.post("/makeInvoices", userAuth, UserController.makeInvoice);
 router.post("/update", userAuth, UserController.userUpdate);
 //forget password
 router.post("/password_reset", UserController.fotgetPassword);
-// verfiy
+// verfiy otp for password
 router.post("/verify", UserController.verfiyPassword);
-// ZC
-router.post("/pay", userAuth, UserController.verfiyPassword);
+//redirect the zc cash
+router.get("/zc/redirect", UserController.zcRedirect);
 
 // HOME CONTROLLERproducts
 router.get("/getcategores", HomeController.getCaegories);
