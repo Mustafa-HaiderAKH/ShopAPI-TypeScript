@@ -166,9 +166,10 @@ export default class UserController {
       status: "pending",
       user,
     });
+    await invoice.save();
     //create zain cash
     const paymentData = {
-      amount: 2500,
+      amount: total,
       orderId: invoice.id,
       serviceType: "some serviceType",
       redirectUrl: "http://localhost:3000/v1/zc/redirect",
@@ -178,6 +179,7 @@ export default class UserController {
       secret: "$2y$10$xlGUesweJh93EosHlaqMFeHh2nTOGxnGKILKCQvlSgKfmhoHzF12G",
       lang: "ar",
     };
+
     let zc = new ZC(paymentData);
     let zcTransactionid;
     try {
@@ -290,6 +292,7 @@ export default class UserController {
   }
   static async zcRedirect(req, res): Promise<object> {
     const token = req.query.token;
+
     let payload: any;
     try {
       payload = jwt.verify(
@@ -302,17 +305,21 @@ export default class UserController {
     const id = payload.orderid;
 
     let invoice = await Invoice.findOne(id);
+
     if (!invoice) return errRes(res, "No such invoice");
     if (payload.status == "success") {
       invoice.status = "paid";
       invoice.zcOperation = payload.operationid;
       invoice.zcMsisdn = payload.msisdn;
       await invoice.save();
-      return okRes(res, invoice);
+      return okRes(res, { invoice });
     }
+
     invoice.status = payload.status;
     invoice.zcOperation = payload.operationid;
+    invoice.zcMsg = payload.msg;
     await invoice.save();
-    return okRes(res, invoice);
+
+    return errRes(res, { data: { invoice } });
   }
 }

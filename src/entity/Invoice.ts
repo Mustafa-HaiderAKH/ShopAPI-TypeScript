@@ -32,12 +32,16 @@ export class Invoice extends BaseEntity {
 
   @Column()
   lat: string;
+
   @Column({ nullable: true })
   transactionId: string;
-  @Column({ nullable: true })
-  zcOperation: string;
+
   @Column({ nullable: true })
   zcMsisdn: string;
+
+  @Column({ nullable: true })
+  zcOperation: string;
+
   @Column({ nullable: true })
   zcMsg: string;
 
