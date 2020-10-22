@@ -1,10 +1,10 @@
 {
    "type": "postgres",
-   "host": "localhost",
+   "host": "ec2-34-235-62-201.compute-1.amazonaws.com",
    "port": 5432,
-   "username": "postgres",
-   "password": "123",
-   "database": "ShopDB",
+   "username": "goptyadpogtgwy",
+   "password": "b616943cad62f47aec57d48cc9f043e8185b1c0150a3a2ba1c4f95a8f471a7ab",
+   "database": "d4cc4gfmsal8qb",
    "synchronize": true,
    "logging": false,
    "entities": [
