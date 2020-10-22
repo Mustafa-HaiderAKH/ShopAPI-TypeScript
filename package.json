@@ -26,7 +26,9 @@
       "request": "^2.88.2",
       "typeorm": "0.2.28",
       "validate.js": "^0.13.1",
-      "zaincash": "^1.0.5"
+      "zaincash": "^1.0.5",
+      "ts-node": "^9.0.0"
+
    },
    "scripts": {
       "start": "ts-node src/index.ts"
